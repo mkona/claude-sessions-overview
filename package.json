@@ -1,0 +1,253 @@
+{
+  "name": "claude-sessions-overview",
+  "displayName": "Claude Sessions",
+  "description": "All your Claude Code sessions (CLI and VS Code extension), across every project, in one sidebar. Click to jump to the window.",
+  "version": "0.4.0",
+  "publisher": "milo",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudeSessions",
+          "title": "Claude Sessions",
+          "icon": "media/claude.svg"
+        }
+      ]
+    },
+    "views": {
+      "claudeSessions": [
+        {
+          "type": "webview",
+          "id": "claudeSessions.panel",
+          "name": "Sessions",
+          "icon": "media/claude.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "claudeSessions.refresh",
+        "title": "Refresh",
+        "category": "Claude Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeSessions.toggleEnded",
+        "title": "Show/Hide Ended Sessions",
+        "category": "Claude Sessions",
+        "icon": "$(history)"
+      },
+      {
+        "command": "claudeSessions.toggleGrouping",
+        "title": "Group by Project / Flat List",
+        "category": "Claude Sessions",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "claudeSessions.open",
+        "title": "Go to Session",
+        "category": "Claude Sessions"
+      },
+      {
+        "command": "claudeSessions.openFolderWindow",
+        "title": "Focus Project Window",
+        "category": "Claude Sessions",
+        "icon": "$(window)"
+      },
+      {
+        "command": "claudeSessions.resumeInTerminal",
+        "title": "Resume in Terminal Here",
+        "category": "Claude Sessions",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "claudeSessions.copyId",
+        "title": "Copy Session ID",
+        "category": "Claude Sessions"
+      },
+      {
+        "command": "claudeSessions.openTranscript",
+        "title": "Open Transcript File",
+        "category": "Claude Sessions"
+      },
+      {
+        "command": "claudeSessions.focusView",
+        "title": "Show Sessions",
+        "category": "Claude Sessions"
+      },
+      {
+        "command": "claudeSessions.refreshUsage",
+        "title": "Refresh Usage",
+        "category": "Claude Sessions",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "claudeSessions.collapseAll",
+        "title": "Collapse All Projects",
+        "category": "Claude Sessions",
+        "icon": "$(collapse-all)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "claudeSessions.refresh",
+          "when": "view == claudeSessions.panel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "claudeSessions.toggleEnded",
+          "when": "view == claudeSessions.panel",
+          "group": "navigation@2"
+        },
+        {
+          "command": "claudeSessions.toggleGrouping",
+          "when": "view == claudeSessions.panel",
+          "group": "navigation@3"
+        },
+        {
+          "command": "claudeSessions.collapseAll",
+          "when": "view == claudeSessions.panel",
+          "group": "navigation@4"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "claudeSessions.open",
+          "when": "false"
+        },
+        {
+          "command": "claudeSessions.openFolderWindow",
+          "when": "false"
+        },
+        {
+          "command": "claudeSessions.resumeInTerminal",
+          "when": "false"
+        },
+        {
+          "command": "claudeSessions.copyId",
+          "when": "false"
+        },
+        {
+          "command": "claudeSessions.openTranscript",
+          "when": "false"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "claudeSessions.open",
+          "when": "webviewId == claudeSessions.panel && webviewSection == session",
+          "group": "1_actions@0"
+        },
+        {
+          "command": "claudeSessions.resumeInTerminal",
+          "when": "webviewId == claudeSessions.panel && webviewSection == session",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "claudeSessions.openFolderWindow",
+          "when": "webviewId == claudeSessions.panel && (webviewSection == session || webviewSection == project)",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "claudeSessions.openTranscript",
+          "when": "webviewId == claudeSessions.panel && webviewSection == session",
+          "group": "2_info@1"
+        },
+        {
+          "command": "claudeSessions.copyId",
+          "when": "webviewId == claudeSessions.panel && webviewSection == session",
+          "group": "2_info@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Claude Sessions",
+      "properties": {
+        "claudeSessions.claudeDir": {
+          "type": "string",
+          "default": "",
+          "description": "Claude config directory. Empty = $CLAUDE_CONFIG_DIR or ~/.claude."
+        },
+        "claudeSessions.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "description": "How often to re-read session state."
+        },
+        "claudeSessions.showEnded": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show sessions that are no longer running."
+        },
+        "claudeSessions.endedMaxAgeDays": {
+          "type": "number",
+          "default": 14,
+          "description": "Hide ended sessions older than this many days."
+        },
+        "claudeSessions.maxEndedPerProject": {
+          "type": "number",
+          "default": 8,
+          "description": "Max ended sessions listed per project."
+        },
+        "claudeSessions.groupByProject": {
+          "type": "boolean",
+          "default": true,
+          "description": "Group sessions under their project folder."
+        },
+        "claudeSessions.notifyNeedsAnswer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pop a notification when a session starts waiting for your answer."
+        },
+        "claudeSessions.resumeEndedCliSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Clicking an ended CLI session opens a terminal running `claude --resume <id>` in its project window."
+        },
+        "claudeSessions.claudeCommand": {
+          "type": "string",
+          "default": "claude",
+          "description": "Command used to resume sessions in a terminal."
+        },
+        "claudeSessions.showUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Usage block (5h / 7d / model limits) at the top of the view."
+        },
+        "claudeSessions.usageRefreshMinutes": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.5,
+          "description": "How often to fetch usage from Anthropic."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "npm run typecheck && npm run build && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/codicons": "^0.0.46-24",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
