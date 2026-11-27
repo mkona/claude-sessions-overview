@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import type { ClaudeCatalog } from '../agent/catalog';
 import { resolveClaudeExecutable } from '../agent/claudePath';
 import { PermissionAnswer, PermissionAsk, RunnerEvents, SessionRunner } from '../agent/runner';
 import { isPidAlive } from '../store';
@@ -38,6 +39,7 @@ export interface ChatPanelDeps {
   claudeDir: () => string;
   claudeCommand: () => string;
   log: vscode.OutputChannel;
+  catalog: ClaudeCatalog;
   defaultPermissionMode: () => PermissionModeName;
   defaultModel: () => string | undefined;
   idleShutdownMinutes: () => number;
@@ -132,7 +134,7 @@ export class ChatPanel implements vscode.Disposable {
       entrypoint: entrypointLabel(init.session?.entrypoint ?? 'sdk'),
       branch: init.session?.gitBranch,
       readOnly: false,
-      models: [],
+      models: deps.catalog.modelOptions(),
       model: deps.defaultModel(),
       permissionMode: deps.defaultPermissionMode(),
     };
@@ -147,6 +149,7 @@ export class ChatPanel implements vscode.Disposable {
       panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg as ViewToHost)),
       panel.onDidChangeViewState(() => this.viewStateEmitter.fire()),
       panel.onDidDispose(() => this.dispose()),
+      deps.catalog.onDidChange((cwd) => this.onCatalogChange(cwd)),
     );
 
     void this.initTranscript();
@@ -234,6 +237,9 @@ export class ChatPanel implements vscode.Disposable {
       case 'ready':
         this.onReady();
         return;
+      case 'warm':
+        void this.warm();
+        return;
       case 'send':
         void this.handleSend(msg.text);
         return;
@@ -295,6 +301,28 @@ export class ChatPanel implements vscode.Disposable {
     if (permission) this.post({ type: 'permission', request: permission.request });
     const question = this.questionQueue[0];
     if (question) this.post({ type: 'question', request: question.request });
+    this.postCommands();
+  }
+
+  private onCatalogChange(cwd: string | undefined): void {
+    if (this.disposed) return;
+    if (cwd === undefined) {
+      this.header.models = this.deps.catalog.modelOptions();
+      this.postHeader();
+    }
+    if (cwd === undefined || cwd === this.cwd) this.postCommands();
+  }
+
+  private postCommands(): void {
+    if (this.ready) this.post({ type: 'commands', commands: this.deps.catalog.commandsFor(this.cwd) });
+  }
+
+  private async warm(): Promise<void> {
+    if (this.header.readOnly || this.runner?.alive) return;
+    const runner = await this.ensureRunner();
+    if (!runner || this.disposed) return;
+    this.touch();
+    runner.warm();
   }
 
   private async handleSend(text: string): Promise<void> {
@@ -303,10 +331,32 @@ export class ChatPanel implements vscode.Disposable {
       this.post({ type: 'error', message: this.header.readOnlyReason ?? 'This session is read-only.' });
       return;
     }
+    this.syncModelCommand(text);
     const runner = await this.ensureRunner();
     if (!runner) return;
     this.touch();
     runner.send(text);
+  }
+
+  /** `/model x` switches the model inside Claude; mirror it in the picker so both agree. */
+  private syncModelCommand(text: string): void {
+    const wanted = /^\/model\s+(\S+)\s*$/.exec(text.trim())?.[1];
+    if (!wanted || !isKnownModel(wanted, this.header.models)) return;
+    const model = wanted === 'default' ? undefined : wanted;
+    if (model === this.header.model) return;
+    this.header.model = model;
+    this.postHeader();
+  }
+
+  private onConversationReset(): void {
+    if (this.disposed) return;
+    this.tail?.dispose();
+    this.tail = undefined;
+    this.transcript = undefined;
+    this.session = undefined;
+    this.resetItems();
+    this.setTitle(`New session · ${this.header.projectName}`);
+    this.refreshEntrypoint();
   }
 
   private ensureRunner(): Promise<SessionRunner | undefined> {
@@ -352,13 +402,14 @@ export class ChatPanel implements vscode.Disposable {
         this.touch();
         this.post({ type: 'partial', text });
       },
-      message: (m) => this.ingest([m]),
+      message: (m) => {
+        if (!isLocalCommandEcho(m)) this.ingest([m]);
+      },
       permission: (ask, signal) => this.askPermission(ask, signal),
       question: (questions, signal) => this.askQuestion(questions, signal),
-      models: (list) => {
-        this.header.models = list;
-        this.postHeader();
-      },
+      models: (list) => this.deps.catalog.setModels(list),
+      commands: (list) => this.deps.catalog.setCommands(this.cwd, list),
+      reset: () => this.onConversationReset(),
       permissionModeChanged: (mode) => {
         this.header.permissionMode = mode;
         this.postHeader();
@@ -951,4 +1002,15 @@ async function signalAndWait(pid: number, signal: NodeJS.Signals, timeoutMs: num
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isKnownModel(value: string, models: { value: string }[]): boolean {
+  if (models.some((m) => m.value === value)) return true;
+  return /^claude-[a-z0-9.-]+(\[1m\])?$/i.test(value) || /^(default|best|opusplan|opus|sonnet|haiku|fable)(\[1m\])?$/i.test(value);
+}
+
+/** Output of a local slash command arrives as a synthetic assistant message; the transcript records the same output in order. */
+function isLocalCommandEcho(m: unknown): boolean {
+  const msg = m as { type?: string; error?: unknown; message?: { model?: string } } | undefined;
+  return msg?.type === 'assistant' && msg.message?.model === '<synthetic>' && !msg.error;
 }

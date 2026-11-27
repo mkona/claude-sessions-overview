@@ -35,7 +35,8 @@ Right-click a session for: Go to Session, Resume in Terminal Here, Open in Proje
 - Permission prompts appear above the composer with a before/after diff: **Allow**, **Allow for session**, **Deny** (with an optional reason). Enter allows, Escape denies.
 - Questions from Claude render as a card with options and a free-text "Other".
 - Composer: Enter sends, Shift+Enter is a newline, Up arrow in an empty box recalls your last message, Stop interrupts the turn.
-- Under the composer: permission mode and model pickers, plus the live status.
+- Slash commands: type `/` for a menu of Claude Code's commands plus your skills and project commands (↑/↓ to pick, Tab completes, Enter runs, Escape closes). `/clear` starts a fresh session in the same tab, `/model <name>` also updates the model picker, and `/context`, `/usage`, `/compact` and the rest work as in the CLI. Commands Claude Code only offers in the terminal (`/resume`, `/status`, `/help`) are not listed.
+- Under the composer: permission mode and model pickers, plus the live status. The model list is cached, so it is filled before the first message.
 - A session that is running somewhere else (a terminal, the Claude Code extension, Desktop) opens read-only with a banner and an **Open in terminal** button. It unlocks by itself once that process stops.
 - The branch chip in the header switches branches through git.
 

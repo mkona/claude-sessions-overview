@@ -2,7 +2,7 @@
   "name": "claude-sessions-overview",
   "displayName": "Claude Sessions",
   "description": "Every Claude Code session on this machine in one window: a sidebar of sessions across all projects, a chat tab per session, and the files each session changed.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "milo",
   "private": true,
   "license": "MIT",

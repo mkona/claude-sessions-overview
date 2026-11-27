@@ -71,7 +71,7 @@ export class ChatModel {
     const command = parseCommand(raw);
     if (command) this.collect(changed, { kind: 'user', id, text: command, ts });
     const stdout = parseLocalStdout(raw);
-    if (stdout) this.collect(changed, { kind: 'system', id: `${id}:out`, text: stdout, level: 'info' });
+    if (stdout) this.collect(changed, { kind: 'assistant', id: `${id}:out`, markdown: stdout, ts });
     if (command || stdout) return changed;
 
     const text = cleanText(raw);
@@ -141,7 +141,7 @@ export class ChatModel {
       // The command itself is already rendered from its user entry; only its output is new.
       const stdout = parseLocalStdout(typeof entry.content === 'string' ? entry.content : '');
       if (!stdout) return [];
-      return this.collect([], { kind: 'system', id, text: stdout, level: 'info' });
+      return this.collect([], { kind: 'assistant', id, markdown: stdout, ts: timestamp(entry) });
     }
     const text = typeof entry.content === 'string' ? cleanText(entry.content) : '';
     if (!text) return [];

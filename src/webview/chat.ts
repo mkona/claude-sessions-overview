@@ -1,5 +1,6 @@
 import {
   ChatItem,
+  CommandOption,
   HostToView,
   PermissionDecision,
   PermissionModeName,
@@ -60,6 +61,12 @@ let status: RunStatus = { state: 'idle' };
 let permission: PermissionRequestView | undefined;
 let question: QuestionRequestView | undefined;
 let lastSent = '';
+let commands: CommandOption[] = [];
+let menuMatches: CommandOption[] = [];
+let menuIndex = 0;
+let menuQuery: string | undefined;
+let menuDismissedFor: string | undefined;
+let warmed = false;
 let waitingForOlder = false;
 
 const nodes = new Map<string, HTMLElement>();
@@ -90,6 +97,7 @@ const dockColumn = el('div', 'column');
 const cardEl = el('div', 'cards');
 const errorEl = el('div', 'banner error');
 const composerEl = el('div', 'composer');
+const slashMenu = el('div', 'slash-menu');
 const input = el('textarea', 'composer-input');
 const sendBtn = button('composer-btn', undefined, 'Send (Enter)');
 const stopBtn = button('composer-btn stop', undefined, 'Stop');
@@ -123,7 +131,9 @@ function buildLayout(): void {
 
   const toolbar = el('div', 'composer-toolbar');
   toolbar.append(modeSelect, modelSelect, statusTextEl);
-  composerEl.append(inputRow, toolbar);
+  slashMenu.hidden = true;
+  slashMenu.setAttribute('role', 'listbox');
+  composerEl.append(slashMenu, inputRow, toolbar);
 
   errorEl.hidden = true;
   dockColumn.append(cardEl, errorEl, composerEl);
@@ -177,15 +187,18 @@ function renderHeader(): void {
 }
 
 function syncControls(): void {
-  const models = header?.models || [];
+  const all = header?.models || [];
+  const models = all.filter((m) => m.value !== 'default');
   const wanted = header?.model || '';
   clear(modelSelect);
-  const def = el('option', undefined, 'Default model');
+  const resolvedDefault = all.find((m) => m.value === 'default')?.description?.split(' · ')[0];
+  const def = el('option', undefined, resolvedDefault ? `Default (${resolvedDefault})` : 'Default model');
   def.value = '';
   modelSelect.appendChild(def);
   for (const m of models) {
     const o = el('option', undefined, m.label);
     o.value = m.value;
+    if (m.description) o.title = m.description;
     modelSelect.appendChild(o);
   }
   if (wanted && !models.some((m) => m.value === wanted)) {
@@ -197,6 +210,7 @@ function syncControls(): void {
   modeSelect.value = header?.permissionMode || 'default';
 
   const readOnly = !!header?.readOnly;
+  if (readOnly) hideSlashMenu();
   input.disabled = readOnly;
   sendBtn.disabled = readOnly;
   modeSelect.disabled = readOnly;
@@ -441,6 +455,8 @@ function saveState(): void {
 function send(): void {
   const text = input.value.trim();
   if (!text || input.disabled) return;
+  hideSlashMenu();
+  menuDismissedFor = undefined;
   post({ type: 'send', text });
   lastSent = text;
   input.value = '';
@@ -449,13 +465,132 @@ function send(): void {
   scrollToBottom();
 }
 
+function slashQuery(): string | undefined {
+  const m = /^\/(\S*)$/.exec(input.value);
+  if (!m || input.selectionStart !== input.selectionEnd) return undefined;
+  return m[1].toLowerCase();
+}
+
+function rankCommand(c: CommandOption, q: string): number {
+  const name = c.name.toLowerCase();
+  if (!q || name.startsWith(q)) return 0;
+  if (c.aliases?.some((a) => a.toLowerCase().startsWith(q))) return 1;
+  if (name.split(/[:\-_]/).some((part) => part.startsWith(q))) return 2;
+  if (name.includes(q)) return 3;
+  if (q.length > 2 && c.description.toLowerCase().split(/[^a-z0-9]+/).some((word) => word.startsWith(q))) return 4;
+  return -1;
+}
+
+function updateSlashMenu(): void {
+  const q = slashQuery();
+  if (q === undefined || input.disabled || menuDismissedFor === input.value) {
+    hideSlashMenu();
+    return;
+  }
+  if (!warmed) {
+    warmed = true;
+    post({ type: 'warm' });
+  }
+  const previous = q === menuQuery ? menuMatches[menuIndex]?.name : undefined;
+  menuQuery = q;
+  menuMatches = commands
+    .map((c) => ({ c, rank: rankCommand(c, q) }))
+    .filter((r) => r.rank >= 0)
+    .sort((a, b) => a.rank - b.rank || a.c.name.localeCompare(b.c.name))
+    .map((r) => r.c);
+  const keep = previous ? menuMatches.findIndex((c) => c.name === previous) : -1;
+  menuIndex = keep >= 0 ? keep : 0;
+  renderSlashMenu();
+}
+
+function renderSlashMenu(): void {
+  clear(slashMenu);
+  if (!menuMatches.length) {
+    slashMenu.appendChild(el('div', 'slash-empty', commands.length ? 'No matching commands' : 'Loading commands…'));
+  }
+  menuMatches.forEach((c, i) => {
+    const row = el('div', 'slash-item' + (i === menuIndex ? ' selected' : ''));
+    row.setAttribute('role', 'option');
+    const name = el('span', 'slash-name', '/' + c.name);
+    row.appendChild(name);
+    if (c.argumentHint) row.appendChild(el('span', 'slash-hint', c.argumentHint));
+    if (c.description) row.appendChild(el('span', 'slash-desc', c.description));
+    row.title = c.description;
+    row.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      menuIndex = i;
+      acceptCommand(false);
+    });
+    slashMenu.appendChild(row);
+  });
+  slashMenu.hidden = false;
+  slashMenu.children[menuIndex]?.scrollIntoView({ block: 'nearest' });
+}
+
+function hideSlashMenu(): void {
+  menuQuery = undefined;
+  if (slashMenu.hidden) return;
+  slashMenu.hidden = true;
+  clear(slashMenu);
+}
+
+function moveSlashSelection(delta: number): void {
+  if (!menuMatches.length) return;
+  menuIndex = (menuIndex + delta + menuMatches.length) % menuMatches.length;
+  renderSlashMenu();
+}
+
+function needsArguments(c: CommandOption): boolean {
+  const hint = c.argumentHint?.trim();
+  return !!hint && !hint.startsWith('[') && !/optional/i.test(hint);
+}
+
+/** Completes the highlighted command; with `run`, one that needs no arguments (or is typed out in full) is sent straight away. */
+function acceptCommand(run: boolean): void {
+  const c = menuMatches[menuIndex];
+  if (!c) return;
+  hideSlashMenu();
+  if (run && (!needsArguments(c) || input.value === '/' + c.name)) {
+    input.value = '/' + c.name;
+    send();
+    return;
+  }
+  input.value = '/' + c.name + ' ';
+  input.setSelectionRange(input.value.length, input.value.length);
+  input.focus();
+  autoGrow();
+  saveState();
+}
+
 function wireComposer(): void {
   input.addEventListener('input', () => {
     autoGrow();
     saveState();
+    updateSlashMenu();
   });
+  input.addEventListener('blur', hideSlashMenu);
+  input.addEventListener('click', updateSlashMenu);
   input.addEventListener('keydown', (e) => {
     if (e.isComposing || e.keyCode === 229) return;
+    if (!slashMenu.hidden) {
+      const plain = !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveSlashSelection(e.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        menuDismissedFor = input.value;
+        hideSlashMenu();
+        return;
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && plain && menuMatches.length) {
+        e.preventDefault();
+        acceptCommand(e.key === 'Enter');
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       send();
@@ -557,6 +692,10 @@ function onMessage(message: HostToView): void {
       break;
     case 'focusComposer':
       input.focus();
+      break;
+    case 'commands':
+      commands = message.commands;
+      if (!slashMenu.hidden) updateSlashMenu();
       break;
   }
 }

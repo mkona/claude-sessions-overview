@@ -1,5 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { ClaudeCatalog } from './agent/catalog';
+import { resolveClaudeExecutable } from './agent/claudePath';
 import { ChangesView } from './changes/changesView';
 import { ChatManager, SavedChat } from './chat/chatManager';
 import { OpenIntent } from './chat/chatPanel';
@@ -21,6 +23,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const config = () => vscode.workspace.getConfiguration('claudeSessions');
   const claudeDir = () => config().get<string>('claudeDir') || defaultClaudeDir();
   const openInThisWindow = () => config().get<string>('openIn', 'thisWindow') !== 'projectWindow';
+  const claudeCommand = () => config().get<string>('claudeCommand') || 'claude';
+  const catalog = new ClaudeCatalog(context.globalState, log);
+  context.subscriptions.push(catalog);
+  void catalog.ensureLoaded(() => resolveClaudeExecutable(claudeCommand()));
   const pendingOpen = takePendingOpen(context) as (Partial<OpenIntent> & { chats?: SavedChat[] }) | undefined;
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
@@ -53,8 +59,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const chatManager = new ChatManager({
     extensionUri: context.extensionUri,
     claudeDir,
-    claudeCommand: () => config().get<string>('claudeCommand') || 'claude',
+    claudeCommand,
     log,
+    catalog,
     defaultPermissionMode: () => config().get<PermissionModeName>('defaultPermissionMode') || 'default',
     defaultModel: () => config().get<string>('defaultModel') || undefined,
     idleShutdownMinutes: () => config().get<number>('idleShutdownMinutes', 20),

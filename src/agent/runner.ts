@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { CanUseTool, Options, PermissionResult, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, ModelInfo, Options, PermissionResult, Query, SDKMessage, SDKUserMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionModeName, RunStatus } from '../chat/protocol';
 
 type PermissionAskInfo = Parameters<CanUseTool>[2];
@@ -30,7 +30,10 @@ export interface RunnerEvents {
   message(m: unknown): void;
   permission(ask: PermissionAsk, signal: AbortSignal): Promise<PermissionAnswer>;
   question(questions: unknown[], signal: AbortSignal): Promise<Record<string, string> | null>;
-  models(list: { value: string; label: string }[]): void;
+  models(list: ModelInfo[]): void;
+  commands(list: SlashCommand[]): void;
+  /** The conversation was discarded (/clear); a new session id follows with the next init. */
+  reset(): void;
   permissionModeChanged(mode: PermissionModeName): void;
   error(message: string): void;
   /** Queued messages the process never received, so the owner can give them back to the user. */
@@ -55,7 +58,6 @@ export class SessionRunner {
   private initialized = false;
   private pendingAsks = 0;
   private interrupting = false;
-  private modelsAsked = false;
   private stderrLines: string[] = [];
 
   private partialText: string | null = null;
@@ -86,6 +88,13 @@ export class SessionRunner {
 
   get busy(): boolean {
     return this.turnActive || this.pending.length > 0;
+  }
+
+  /** Starts the Claude process without sending anything, so its commands are known before the first prompt. */
+  warm(): void {
+    if (this.q) return;
+    this.start();
+    this.reportTurnStatus();
   }
 
   send(text: string): void {
@@ -180,7 +189,7 @@ export class SessionRunner {
       return;
     }
     void this.consume(this.q);
-    void this.askModels(this.q);
+    void this.askCatalog(this.q);
   }
 
   private async *input(): AsyncGenerator<SDKUserMessage> {
@@ -258,6 +267,10 @@ export class SessionRunner {
       case 'result':
         this.handleResult(m);
         return;
+      case 'conversation_reset':
+        this.clearPartial();
+        this.events.reset();
+        return;
       default:
         return;
     }
@@ -275,6 +288,7 @@ export class SessionRunner {
       return;
     }
     if (m.subtype === 'status' && m.permissionMode) this.applyMode(m.permissionMode);
+    if (m.subtype === 'commands_changed' && Array.isArray(m.commands)) this.events.commands(m.commands);
   }
 
   private applyMode(mode: string | undefined): void {
@@ -377,15 +391,14 @@ export class SessionRunner {
     return { behavior: 'allow', updatedInput: { ...input, answers } };
   }
 
-  private async askModels(q: Query): Promise<void> {
-    if (this.modelsAsked) return;
-    this.modelsAsked = true;
+  private async askCatalog(q: Query): Promise<void> {
     try {
-      const models = await q.supportedModels();
+      const [models, commands] = await Promise.all([q.supportedModels(), q.supportedCommands()]);
       if (this.q !== q) return;
-      this.events.models(models.map((m) => ({ value: m.value, label: m.displayName || m.value })));
+      this.events.models(models);
+      this.events.commands(commands);
     } catch {
-      this.modelsAsked = false;
+      /* the process went away before it answered */
     }
   }
 
@@ -418,7 +431,7 @@ export class SessionRunner {
   }
 }
 
-function childEnv(): Record<string, string | undefined> {
+export function childEnv(): Record<string, string | undefined> {
   const env = { ...process.env };
   delete env.CLAUDE_CODE_ENTRYPOINT;
   delete env.CLAUDECODE;

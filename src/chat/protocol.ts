@@ -18,6 +18,19 @@ export type ChatItem =
     }
   | { kind: 'system'; id: string; text: string; level: 'info' | 'warning' | 'error' };
 
+export interface ModelOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface CommandOption {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  aliases?: string[];
+}
+
 export interface SessionHeader {
   sessionId?: string;
   title: string;
@@ -29,7 +42,7 @@ export interface SessionHeader {
   readOnlyReason?: string;
   canTakeOver?: boolean;
   model?: string;
-  models: { value: string; label: string }[];
+  models: ModelOption[];
   permissionMode: PermissionModeName;
 }
 
@@ -68,6 +81,7 @@ export type HostToView =
   | { type: 'permission'; request: PermissionRequestView | null }
   | { type: 'question'; request: QuestionRequestView | null }
   | { type: 'error'; message: string }
+  | { type: 'commands'; commands: CommandOption[] }
   | { type: 'restoreDraft'; text: string }
   | { type: 'focusComposer' };
 
@@ -75,6 +89,7 @@ export type PermissionDecision = 'allow' | 'allowSession' | 'deny';
 
 export type ViewToHost =
   | { type: 'ready' }
+  | { type: 'warm' }
   | { type: 'send'; text: string }
   | { type: 'interrupt' }
   | { type: 'setPermissionMode'; mode: PermissionModeName }
