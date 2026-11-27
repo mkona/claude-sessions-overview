@@ -9,10 +9,12 @@ export interface PanelState {
   showUsage: boolean;
   collapsed: string[];
   filter: string;
+  activeSessionId?: string;
 }
 
 export interface PanelEvents {
   onOpen(sessionId: string): void;
+  onNewSession(cwd: string): void;
   onFilter(text: string): void;
   onRefreshUsage(): void;
   onToggleProject(cwd: string, collapsed: boolean): void;
@@ -40,6 +42,9 @@ export class SessionsPanel implements vscode.WebviewViewProvider {
           return;
         case 'open':
           if (typeof msg.sessionId === 'string') this.events.onOpen(msg.sessionId);
+          return;
+        case 'newSession':
+          if (typeof msg.cwd === 'string') this.events.onNewSession(msg.cwd);
           return;
         case 'filter':
           if (typeof msg.text === 'string') this.events.onFilter(msg.text);

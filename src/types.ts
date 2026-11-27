@@ -18,6 +18,8 @@ export interface SessionInfo {
   name?: string;
   gitBranch?: string;
   version?: string;
+  /** This window runs the Claude process for this session. */
+  ownedHere?: boolean;
 }
 
 export interface RegistryEntry {

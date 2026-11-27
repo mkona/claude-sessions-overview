@@ -6,7 +6,7 @@
   const listEl = document.getElementById('list');
   const emptyEl = document.getElementById('empty');
 
-  let state = { sessions: [], usage: undefined, groupByProject: true, showUsage: true, collapsed: [], filter: '' };
+  let state = { sessions: [], usage: undefined, groupByProject: true, showUsage: true, collapsed: [], filter: '', activeSessionId: undefined };
   let filterTimer;
 
   const STATE_ORDER = { 'needs-answer': 0, working: 1, idle: 2, ended: 3 };
@@ -127,12 +127,17 @@
   }
 
   function sessionRow(s, now, showProject) {
-    const row = el('div', 'row session');
+    const row = el('div', 'row session' + (s.sessionId === state.activeSessionId ? ' active' : ''));
     row.tabIndex = 0;
     row.setAttribute('role', 'treeitem');
-    row.dataset.vscodeContext = JSON.stringify({ webviewSection: 'session', sessionId: s.sessionId, preventDefaultContextMenuItems: true });
+    row.dataset.vscodeContext = JSON.stringify({ webviewSection: 'session', sessionId: s.sessionId, cwd: s.cwd, preventDefaultContextMenuItems: true });
     row.appendChild(el('span', 'codicon ' + stateIcon(s.state)));
     row.appendChild(el('span', 'title', s.title));
+    if (s.ownedHere) {
+      const here = el('span', 'here', 'here');
+      here.title = 'This window runs this session';
+      row.appendChild(here);
+    }
     let desc = stateLabel(s, now) + ' · ' + (SOURCE[s.entrypoint] || s.entrypoint);
     if (showProject) desc += ' · ' + basename(s.cwd);
     row.appendChild(el('span', 'desc', desc));
@@ -209,6 +214,14 @@
         head.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
         });
+        const add = el('button', 'icon-btn add codicon codicon-add');
+        add.title = 'New Claude session in ' + basename(p.cwd);
+        add.tabIndex = -1;
+        add.addEventListener('click', (e) => {
+          e.stopPropagation();
+          vscode.postMessage({ type: 'newSession', cwd: p.cwd });
+        });
+        head.appendChild(add);
         listEl.appendChild(head);
         if (!collapsed) for (const s of p.sessions) listEl.appendChild(sessionRow(s, now, false));
         total += p.sessions.length;
